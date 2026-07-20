@@ -1,14 +1,15 @@
 from typing import Dict, List, Optional, Tuple, Any
 from pydantic import BaseModel, Field, field_validator
-from models import JSONResume, EvaluationData
+from models import JSONResume, EvaluationData, CategoryScore, ParseDiagnostics
 from llm_utils import initialize_llm_provider, extract_json_from_response
+from parse_quality import apply_parse_quality, format_diagnostics_for_prompt
 import logging
 import json
 import re
 
 MAX_BONUS_POINTS = 20
 MIN_FINAL_SCORE = -20
-MAX_FINAL_SCORE = 120
+MAX_FINAL_SCORE = 130
 
 from prompt import (
     DEFAULT_MODEL,
@@ -45,9 +46,18 @@ class ResumeEvaluator:
             raise ValueError("Failed to load resume evaluation criteria template")
         return criteria_template
 
-    def evaluate_resume(self, resume_text: str) -> EvaluationData:
+    def evaluate_resume(
+        self,
+        resume_text: str,
+        parse_diagnostics: Optional[ParseDiagnostics] = None,
+        parse_score: Optional[CategoryScore] = None,
+    ) -> EvaluationData:
         self._last_resume_text = resume_text
-        full_prompt = self._load_evaluation_prompt(resume_text)
+        prompt_text = resume_text
+        if parse_diagnostics is not None and parse_score is not None:
+            prompt_text += format_diagnostics_for_prompt(parse_diagnostics, parse_score)
+
+        full_prompt = self._load_evaluation_prompt(prompt_text)
         # logger.info(f"🔤 Evaluation prompt being sent: {full_prompt}")
         try:
             system_message = self.template_manager.render_template(
@@ -82,6 +92,8 @@ class ResumeEvaluator:
             logger.error(f"🔤 Prompt response: {response_text}")
 
             evaluation_dict = json.loads(response_text)
+            if parse_score is not None:
+                evaluation_dict = apply_parse_quality(evaluation_dict, parse_score)
             evaluation_data = EvaluationData(**evaluation_dict)
 
             return evaluation_data

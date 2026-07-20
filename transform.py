@@ -685,17 +685,30 @@ def transform_evaluation_response(
         csv_row["technical_skills_score"] = scores.technical_skills.score
         csv_row["technical_skills_max"] = scores.technical_skills.max
 
+        if hasattr(scores, "parse_quality") and scores.parse_quality:
+            csv_row["parse_quality_score"] = scores.parse_quality.score
+            csv_row["parse_quality_max"] = scores.parse_quality.max
+            parse_score = scores.parse_quality.score
+            parse_max = scores.parse_quality.max
+        else:
+            csv_row["parse_quality_score"] = "N/A"
+            csv_row["parse_quality_max"] = "N/A"
+            parse_score = 0
+            parse_max = 0
+
         total_score = (
             scores.open_source.score
             + scores.self_projects.score
             + scores.production.score
             + scores.technical_skills.score
+            + parse_score
         )
         total_max = (
             scores.open_source.max
             + scores.self_projects.max
             + scores.production.max
             + scores.technical_skills.max
+            + parse_max
         )
 
         csv_row["total_score"] = total_score
@@ -709,6 +722,8 @@ def transform_evaluation_response(
         csv_row["production_max"] = "N/A"
         csv_row["technical_skills_score"] = "N/A"
         csv_row["technical_skills_max"] = "N/A"
+        csv_row["parse_quality_score"] = "N/A"
+        csv_row["parse_quality_max"] = "N/A"
         csv_row["total_score"] = "N/A"
         csv_row["total_max"] = "N/A"
 

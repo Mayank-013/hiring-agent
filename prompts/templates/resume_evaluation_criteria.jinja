@@ -1,6 +1,6 @@
 You are evaluating a resume for a Software Intern position at HackerRank. Analyze the resume data and provide scores based on these criteria:
 
-**MANDATORY: You MUST always fill ALL FOUR categories: open_source, self_projects, production, technical_skills.**
+**MANDATORY: You MUST always fill ALL FIVE categories: open_source, self_projects, production, technical_skills, parse_quality.**
 
 ## CRITICAL FAIRNESS REQUIREMENTS
 **SCORES MUST NEVER DEPEND ON:**
@@ -89,6 +89,12 @@ You are evaluating a resume for a Software Intern position at HackerRank. Analyz
 ### Technical Skills (0-10 points)
 - Analyze the 'skills', 'languages', and evidence of technical breadth or problem-solving in projects, work, or competitions
 
+### Parse Quality (0-10 points)
+- Score how easily an ATS/parser can read this resume (machine readability)
+- When `=== PARSE QUALITY DIAGNOSTICS (AUTHORITATIVE) ===` is present, you MUST use the precomputed parse_quality score and max exactly
+- Evidence should cite failed/empty sections, extraction issues, and formatting problems from the diagnostics
+- Include concrete resume-format suggestions in `areas_for_improvement` when parse issues exist (single-column layout, selectable text, clear headings, explicit GitHub/portfolio URLs)
+
 ## PROJECT COMPLEXITY ASSESSMENT
 
 **Simple/Basic Projects (Low Impact):**
@@ -143,7 +149,7 @@ You are evaluating a resume for a Software Intern position at HackerRank. Analyz
 
 ## CRITICAL REQUIREMENTS
 1. You MUST respond with ONLY the JSON structure below - no summary, no other fields
-2. You MUST fill ALL FOUR score categories: open_source, self_projects, production, technical_skills
+2. You MUST fill ALL FIVE score categories: open_source, self_projects, production, technical_skills, parse_quality
 3. You MUST provide evidence for each score
 4. You MUST NOT add any other fields like "summary", "skills", "experience", etc.
 5. You MUST NOT change the field names or structure
@@ -160,8 +166,9 @@ You are evaluating a resume for a Software Intern position at HackerRank. Analyz
   - self_projects: 0-30 points (maximum 30)
   - production: 0-25 points (maximum 25)
   - technical_skills: 0-10 points (maximum 10)
+  - parse_quality: 0-10 points (maximum 10) — use the AUTHORITATIVE precomputed value when provided
 - Bonus points total must be <= 20 (maximum 20 points)
-- **OVERALL SCORE LIMIT**: The total score (categories + bonus - deductions) cannot exceed 120 points
+- **OVERALL SCORE LIMIT**: The total score (categories + bonus - deductions) cannot exceed 130 points
 
 **DO NOT RETURN A RESUME SUMMARY. RETURN ONLY THE SCORING EVALUATION IN THE SPECIFIED JSON FORMAT.**
 
@@ -172,7 +179,8 @@ Analyze the following resume and provide a JSON response with this EXACT structu
         "open_source": {"score": 0, "max": 35, "evidence": "string"},
         "self_projects": {"score": 0, "max": 30, "evidence": "string"},
         "production": {"score": 0, "max": 25, "evidence": "string"},
-        "technical_skills": {"score": 0, "max": 10, "evidence": "string"}
+        "technical_skills": {"score": 0, "max": 10, "evidence": "string"},
+        "parse_quality": {"score": 0, "max": 10, "evidence": "string"}
     },
     "bonus_points": {"total": 0, "breakdown": "string"},
     "deductions": {"total": 0, "reasons": "string"},

@@ -8,6 +8,7 @@ class ModelProvider(Enum):
 
     OLLAMA = "ollama"
     GEMINI = "gemini"
+    OPENAI = "openai"
 
 
 @runtime_checkable
@@ -221,11 +222,32 @@ class CategoryScore(BaseModel):
     evidence: str = Field(min_length=1, description="Evidence supporting the score")
 
 
+class ParseDiagnostics(BaseModel):
+    """Diagnostics from PDF text extraction and section parsing."""
+
+    text_extraction_ok: bool = True
+    text_length: int = 0
+    sections_attempted: List[str] = Field(default_factory=list)
+    sections_succeeded: List[str] = Field(default_factory=list)
+    sections_failed: List[str] = Field(default_factory=list)
+    schema_errors: List[str] = Field(default_factory=list)
+    issues: List[str] = Field(default_factory=list)
+    suggestions: List[str] = Field(default_factory=list)
+
+
+class ExtractionResult(BaseModel):
+    """Result of resume PDF extraction including parse diagnostics."""
+
+    resume: Optional[JSONResume] = None
+    diagnostics: ParseDiagnostics
+
+
 class Scores(BaseModel):
     open_source: CategoryScore
     self_projects: CategoryScore
     production: CategoryScore
     technical_skills: CategoryScore
+    parse_quality: CategoryScore
 
 
 class BonusPoints(BaseModel):
@@ -389,3 +411,52 @@ class GeminiProvider:
                     f"Retrying in {sleep_time}s..."
                 )
                 time.sleep(sleep_time)
+
+
+class OpenAIProvider:
+    """OpenAI API provider implementation."""
+
+    def __init__(self, api_key: str):
+        from openai import OpenAI
+
+        self.client = OpenAI(api_key=api_key)
+
+    def chat(
+        self,
+        model: str,
+        messages: List[Dict[str, str]],
+        options: Dict[str, Any] = None,
+        **kwargs
+    ) -> Dict[str, Any]:
+        """Send a chat request to OpenAI API."""
+        params: Dict[str, Any] = {
+            "model": model,
+            "messages": messages,
+        }
+
+        if options:
+            if "temperature" in options:
+                params["temperature"] = options["temperature"]
+            if "top_p" in options:
+                params["top_p"] = options["top_p"]
+            if "stream" in options:
+                params["stream"] = options["stream"]
+
+        if "stream" in kwargs:
+            params["stream"] = kwargs["stream"]
+
+        # Map Ollama-style format (JSON schema) to OpenAI structured output
+        if "format" in kwargs and kwargs["format"]:
+            params["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "structured_output",
+                    "schema": kwargs["format"],
+                    "strict": False,
+                },
+            }
+
+        response = self.client.chat.completions.create(**params)
+        content = response.choices[0].message.content or ""
+
+        return {"message": {"role": "assistant", "content": content}}

@@ -5,7 +5,7 @@ import logging
 import csv
 from pdf import PDFHandler
 from github import fetch_and_display_github_info
-from models import JSONResume, EvaluationData
+from models import JSONResume, EvaluationData, ParseDiagnostics, CategoryScore
 from typing import List, Optional, Dict
 from evaluator import ResumeEvaluator
 from pathlib import Path
@@ -17,6 +17,7 @@ from transform import (
     convert_blog_data_to_text,
 )
 from config import DEVELOPMENT_MODE
+from parse_quality import score_parse_quality, diagnostics_from_resume
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +64,7 @@ def print_evaluation_results(
         total_score -= evaluation.deductions.total
 
     # Ensure total score doesn't exceed maximum possible score
-    max_possible_score = max_score + 20  # 120 (100 categories + 20 bonus)
+    max_possible_score = max_score + 20  # 130 (110 categories + 20 bonus)
     if total_score > max_possible_score:
         total_score = max_possible_score
         print(f"⚠️  Warning: Total score capped at maximum possible value")
@@ -82,6 +83,7 @@ def print_evaluation_results(
             "self_projects": 30,
             "production": 25,
             "technical_skills": 10,
+            "parse_quality": 10,
         }
 
         # Open Source
@@ -122,6 +124,17 @@ def print_evaluation_results(
             print(f"   Evidence: {tech_score.evidence}")
             print()
 
+        # Parse Quality
+        if (
+            hasattr(evaluation.scores, "parse_quality")
+            and evaluation.scores.parse_quality
+        ):
+            pq_score = evaluation.scores.parse_quality
+            capped_score = min(pq_score.score, category_maxes["parse_quality"])
+            print(f"📄 Parse Quality:        {capped_score}/{pq_score.max}")
+            print(f"   Evidence: {pq_score.evidence}")
+            print()
+
     # Bonus Points
     if hasattr(evaluation, "bonus_points") and evaluation.bonus_points:
         print(f"\n⭐ BONUS POINTS: {evaluation.bonus_points.total}")
@@ -160,7 +173,11 @@ def print_evaluation_results(
 
 
 def _evaluate_resume(
-    resume_data: JSONResume, github_data: dict = None, blog_data: dict = None
+    resume_data: JSONResume,
+    github_data: dict = None,
+    blog_data: dict = None,
+    parse_diagnostics: Optional[ParseDiagnostics] = None,
+    parse_score: Optional[CategoryScore] = None,
 ) -> Optional[EvaluationData]:
     """Evaluate the resume using AI and display results."""
 
@@ -180,10 +197,15 @@ def _evaluate_resume(
         blog_text = convert_blog_data_to_text(blog_data)
         resume_text += blog_text
 
-    # Evaluate the enhanced resume
-    evaluation_result = evaluator.evaluate_resume(resume_text)
+    if parse_diagnostics is None or parse_score is None:
+        parse_diagnostics, parse_score = diagnostics_from_resume(resume_data)
 
-    # print(evaluation_result)
+    # Evaluate the enhanced resume
+    evaluation_result = evaluator.evaluate_resume(
+        resume_text,
+        parse_diagnostics=parse_diagnostics,
+        parse_score=parse_score,
+    )
 
     return evaluation_result
 
@@ -221,6 +243,8 @@ def main(pdf_path):
     )
 
     resume_data = None
+    parse_diagnostics = None
+    parse_score = None
     cache_loaded = False
 
     # Check if cache exists and we're in development mode
@@ -232,6 +256,7 @@ def main(pdf_path):
             if not is_valid_resume_data(loaded_resume):
                 raise ValueError("Cached resume data contains no core content")
             resume_data = loaded_resume
+            parse_diagnostics, parse_score = diagnostics_from_resume(resume_data)
             cache_loaded = True
         except Exception as e:
             print(f"⚠️ Warning: Invalid cache file {cache_filename}: {e}")
@@ -249,9 +274,20 @@ def main(pdf_path):
             + (" and caching to " + cache_filename if DEVELOPMENT_MODE else "")
         )
         pdf_handler = PDFHandler()
-        resume_data = pdf_handler.extract_json_from_pdf(pdf_path)
+        extraction = pdf_handler.extract_json_from_pdf(pdf_path)
+        resume_data = extraction.resume
+        parse_diagnostics = extraction.diagnostics
+        parse_score = score_parse_quality(parse_diagnostics)
 
-        if resume_data == None:
+        if resume_data is None or not is_valid_resume_data(resume_data):
+            print(
+                f"⚠️ Parse quality: {parse_score.score}/{parse_score.max} — "
+                f"{parse_score.evidence}"
+            )
+            if parse_diagnostics.suggestions:
+                print("Suggestions:")
+                for tip in parse_diagnostics.suggestions:
+                    print(f"  - {tip}")
             return None
 
         if DEVELOPMENT_MODE:
@@ -323,7 +359,12 @@ def main(pdf_path):
                     encoding="utf-8",
                 )
 
-    score = _evaluate_resume(resume_data, github_data)
+    score = _evaluate_resume(
+        resume_data,
+        github_data,
+        parse_diagnostics=parse_diagnostics,
+        parse_score=parse_score,
+    )
 
     # Get candidate name for display
     candidate_name = os.path.basename(pdf_path).replace(".pdf", "")

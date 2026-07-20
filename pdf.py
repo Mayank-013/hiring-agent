@@ -19,7 +19,9 @@ from models import (
     SkillsSection,
     ProjectsSection,
     AwardsSection,
+    ExtractionResult,
 )
+from parse_quality import build_diagnostics
 from llm_utils import initialize_llm_provider, extract_json_from_response
 from pymupdf_rag import to_markdown
 from typing import List, Optional, Dict, Any
@@ -189,21 +191,38 @@ class PDFHandler:
             return None
         return self._call_llm_for_section("awards", resume_text, prompt, AwardsSection)
 
-    def extract_json_from_text(self, resume_text: str) -> Optional[JSONResume]:
+    def extract_json_from_text(self, resume_text: str) -> ExtractionResult:
         try:
             return self._extract_all_sections_separately(resume_text)
         except Exception as e:
             logger.error(f"Error calling Ollama: {e}")
-            return None
+            diagnostics = build_diagnostics(
+                text_content=resume_text,
+                resume=None,
+                sections_attempted=[],
+                sections_succeeded=[],
+                sections_failed=[],
+                text_extraction_ok=bool(resume_text),
+                schema_errors=[str(e)],
+            )
+            return ExtractionResult(resume=None, diagnostics=diagnostics)
 
-    def extract_json_from_pdf(self, pdf_path: str) -> Optional[JSONResume]:
+    def extract_json_from_pdf(self, pdf_path: str) -> ExtractionResult:
         try:
             logger.debug(f"📄 Extracting text from PDF: {pdf_path}")
             text_content = self.extract_text_from_pdf(pdf_path)
 
             if not text_content:
                 logger.error("❌ Failed to extract text from PDF")
-                return None
+                diagnostics = build_diagnostics(
+                    text_content=None,
+                    resume=None,
+                    sections_attempted=[],
+                    sections_succeeded=[],
+                    sections_failed=[],
+                    text_extraction_ok=False,
+                )
+                return ExtractionResult(resume=None, diagnostics=diagnostics)
 
             logger.debug(
                 f"✅ Successfully extracted {len(text_content)} characters from PDF"
@@ -214,7 +233,16 @@ class PDFHandler:
 
         except Exception as e:
             logger.error(f"❌ Error during PDF to JSON extraction: {e}")
-            return None
+            diagnostics = build_diagnostics(
+                text_content=None,
+                resume=None,
+                sections_attempted=[],
+                sections_succeeded=[],
+                sections_failed=[],
+                text_extraction_ok=False,
+                schema_errors=[str(e)],
+            )
+            return ExtractionResult(resume=None, diagnostics=diagnostics)
 
     def _extract_section_data(
         self, text_content: str, section_name: str, return_model=None
@@ -263,12 +291,13 @@ class PDFHandler:
 
         return None
 
-    def _extract_all_sections_separately(
-        self, text_content: str
-    ) -> Optional[JSONResume]:
+    def _extract_all_sections_separately(self, text_content: str) -> ExtractionResult:
         start_time = time.time()
 
         sections = ["basics", "work", "education", "skills", "projects", "awards"]
+        sections_succeeded: List[str] = []
+        sections_failed: List[str] = []
+        schema_errors: List[str] = []
 
         complete_resume = {
             "basics": None,
@@ -291,13 +320,15 @@ class PDFHandler:
 
             if section_data:
                 complete_resume.update(section_data)
+                sections_succeeded.append(section_name)
                 logger.debug(f"✅ Successfully extracted {section_name} section")
             else:
-                logger.error(
-                    f"⚠️ Failed to extract {section_name} section. Aborting extraction to prevent partial/invalid resume data."
+                sections_failed.append(section_name)
+                logger.warning(
+                    f"⚠️ Failed to extract {section_name} section; continuing with partial resume"
                 )
-                return None
 
+        json_resume: Optional[JSONResume] = None
         try:
             if complete_resume.get("basics") and isinstance(
                 complete_resume["basics"], dict
@@ -306,7 +337,12 @@ class PDFHandler:
                     complete_resume["basics"] = Basics(**complete_resume["basics"])
                 except Exception as e:
                     logger.error(f"❌ Error creating Basics object: {e}")
+                    schema_errors.append(f"basics: {e}")
                     complete_resume["basics"] = None
+                    if "basics" in sections_succeeded:
+                        sections_succeeded.remove("basics")
+                    if "basics" not in sections_failed:
+                        sections_failed.append("basics")
 
             json_resume = JSONResume(**complete_resume)
 
@@ -316,8 +352,18 @@ class PDFHandler:
                 f"⏱️ Total time for separate section extraction: {total_time:.2f} seconds"
             )
 
-            return json_resume
-
         except Exception as e:
             logger.error(f"❌ Error creating JSONResume object: {e}")
-            return None
+            schema_errors.append(str(e))
+            json_resume = None
+
+        diagnostics = build_diagnostics(
+            text_content=text_content,
+            resume=json_resume,
+            sections_attempted=sections,
+            sections_succeeded=sections_succeeded,
+            sections_failed=sections_failed,
+            text_extraction_ok=True,
+            schema_errors=schema_errors,
+        )
+        return ExtractionResult(resume=json_resume, diagnostics=diagnostics)

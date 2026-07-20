@@ -224,3 +224,14 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+# ATS frontend/backend
+uploads/
+web/node_modules/
+web/.next/
+
+resumes/
+.DS_Store
+
+# Allow Next.js app lib (root lib/ is for Python packaging)
+!web/src/lib/
+!web/src/lib/**
